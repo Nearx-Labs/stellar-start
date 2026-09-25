@@ -517,7 +517,7 @@ ensure_stellar_cli() {
       exit 1
     fi
   else
-    log_ok "Stellar CLI OK ($(stellar --version 2>/dev/null || echo present))"
+    log_ok "Stellar CLI OK ($(stellar --version 2>/dev/null | head -n 1 || echo present))"
   fi
   ensure_path_hint "$_dir"
 }
@@ -548,7 +548,7 @@ print_summary() {
   printf '  rustc:   %s\n' "$(rustc --version 2>/dev/null || echo missing)"
   printf '  cargo:   %s\n' "$(cargo --version 2>/dev/null || echo missing)"
   printf '  target:  %s (%s)\n' "$WASM_TARGET" "$(rustup target list --installed 2>/dev/null | grep -c "^${WASM_TARGET}\$" || true) installed"
-  printf '  stellar: %s\n' "$(stellar --version 2>/dev/null || echo missing)"
+  printf '  stellar: %s\n' "$(stellar --version 2>/dev/null | head -n 1 || echo missing)"
   printf '========================================\n'
   printf '\nTry:  stellar --help\n'
   printf 'Docs: https://developers.stellar.org/docs/tools/cli/stellar-cli.md\n'
