@@ -118,9 +118,17 @@ echo "source <(stellar completion --shell bash)" >> ~/.bashrc
 source <(stellar completion --shell zsh)
 # ZSH — permanently
 echo "source <(stellar completion --shell zsh)" >> ~/.zshrc
+
+# fish — current session
+stellar completion --shell fish | source
+# fish — permanently
+echo "stellar completion --shell fish | source" >> ~/.config/fish/config.fish
 ```
 
-Other shells (`fish`, `powershell`, `elvish`): run the installer once and copy the line it prints for your shell.
+For other shells (`powershell`, `elvish`), generate the configuration with:
+```sh
+stellar completion --shell <name>
+```
 
 ## Troubleshooting
 
