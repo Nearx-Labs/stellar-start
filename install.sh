@@ -33,11 +33,27 @@ USER_INSTALL=false
 INSTALL_DIR=""
 STELLAR_VERSION=""
 
-# --- logging (plain technical EN) ---
-log_info() { printf '[INFO] %s\n' "$*"; }
-log_ok() { printf '[OK] %s\n' "$*"; }
-log_warn() { printf '[WARN] %s\n' "$*" >&2; }
-log_error() { printf '[ERROR] %s\n' "$*" >&2; }
+# --- logging (plain technical EN with conditional ANSI colors) ---
+if [ -t 1 ]; then
+  C_RESET="$(printf '\033[0m')"
+  C_BOLD="$(printf '\033[1m')"
+  C_GREEN="$(printf '\033[32m')"
+  C_BLUE="$(printf '\033[34m')"
+  C_YELLOW="$(printf '\033[33m')"
+  C_RED="$(printf '\033[31m')"
+else
+  C_RESET=""
+  C_BOLD=""
+  C_GREEN=""
+  C_BLUE=""
+  C_YELLOW=""
+  C_RED=""
+fi
+
+log_info() { printf '%s[INFO]%s %s\n' "$C_BLUE" "$C_RESET" "$*"; }
+log_ok() { printf '%s[OK]%s %s\n' "$C_GREEN" "$C_RESET" "$*"; }
+log_warn() { printf '%s[WARN]%s %s\n' "$C_YELLOW" "$C_RESET" "$*" >&2; }
+log_error() { printf '%s[ERROR]%s %s\n' "$C_RED" "$C_RESET" "$*" >&2; }
 
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
@@ -235,6 +251,11 @@ rustc_version() {
   rustc --version 2>/dev/null | sed -E 's/[^0-9]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/' || true
 }
 
+cargo_installed_version() {
+  # prints X.Y.Z from `cargo --version` ("cargo 1.84.0 (...)" )
+  cargo --version 2>/dev/null | sed -E 's/[^0-9]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/' || true
+}
+
 ensure_cargo_env() {
   if [ -f "$HOME/.cargo/env" ]; then
     # shellcheck disable=SC1090,SC1091
@@ -336,7 +357,6 @@ ensure_rust() {
   fi
 
   _ver="$(rustc_version)"
-  log_info "Found rustc ${_ver:-unknown}"
   if [ -n "$_ver" ] && ! version_ge "$_ver" "$MIN_RUST_VERSION"; then
     log_info "rustc $_ver is older than required ${MIN_RUST_VERSION}. Updating stable..."
     rustup update stable || {
@@ -475,36 +495,29 @@ ensure_path_hint() {
 }
 
 ensure_stellar_cli() {
+  if command_exists stellar; then
+    _cur="$(stellar_installed_version)"
+    if [ -n "$STELLAR_VERSION" ]; then
+      if [ "$FORCE_REINSTALL" != true ] && [ "$_cur" = "$STELLAR_VERSION" ]; then
+        log_ok "Stellar CLI v${_cur} already installed (pinned version satisfied)"
+        return 0
+      fi
+    elif [ "$FORCE_REINSTALL" != true ]; then
+      log_ok "Stellar CLI already installed (v${_cur:-unknown}, $(command -v stellar))"
+      return 0
+    fi
+  fi
+
   _dir="$(default_install_dir)"
   if [ ! -d "$_dir" ]; then
     log_info "Creating install directory: $_dir"
     mkdir -p "$_dir"
   fi
 
-  if command_exists stellar; then
-    _cur="$(stellar_installed_version)"
-    if [ -n "$STELLAR_VERSION" ]; then
-      if [ "$FORCE_REINSTALL" != true ] && [ "$_cur" = "$STELLAR_VERSION" ]; then
-        log_ok "Stellar CLI v${_cur} already installed (pinned version satisfied)"
-        ensure_path_hint "$_dir"
-        return 0
-      fi
-      install_stellar_pinned "$STELLAR_VERSION" "$_dir"
-    else
-      if [ "$FORCE_REINSTALL" = true ]; then
-        install_stellar_latest_via_upstream "$_dir"
-      else
-        log_ok "Stellar CLI already installed (v${_cur:-unknown}, $(command -v stellar)). Use --force to reinstall or --stellar-version=X to pin."
-        ensure_path_hint "$_dir"
-        return 0
-      fi
-    fi
+  if [ -n "$STELLAR_VERSION" ]; then
+    install_stellar_pinned "$STELLAR_VERSION" "$_dir"
   else
-    if [ -n "$STELLAR_VERSION" ]; then
-      install_stellar_pinned "$STELLAR_VERSION" "$_dir"
-    else
-      install_stellar_latest_via_upstream "$_dir"
-    fi
+    install_stellar_latest_via_upstream "$_dir"
   fi
 
   ensure_cargo_env
@@ -517,42 +530,36 @@ ensure_stellar_cli() {
       exit 1
     fi
   else
-    log_ok "Stellar CLI OK ($(stellar --version 2>/dev/null | head -n 1 || echo present))"
+    log_ok "Stellar CLI OK (v$(stellar_installed_version))"
   fi
   ensure_path_hint "$_dir"
-}
-
-print_editor_checklist() {
-  cat <<EOF
-
-[INFO] Editor setup (manual, one time):
-  1. Install Visual Studio Code: https://code.visualstudio.com
-  2. Install Rust Analyzer: https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer
-  3. Install CodeLLDB: https://marketplace.visualstudio.com/items?itemName=vadimcn.vscode-lldb
-  Rust setup docs: https://www.rust-lang.org/tools
-
-[INFO] Shell completion (recommended):
-  Bash:       source <(stellar completion --shell bash)
-  ZSH:        source <(stellar completion --shell zsh)
-  fish:       stellar completion --shell fish | source
-  PowerShell: stellar completion --shell powershell | Out-String | Invoke-Expression
-  Elvish:     source (stellar completion --shell elvish)
-  Persist it by appending the line for your shell to ~/.bashrc, ~/.zshrc,
-  ~/.config/fish/config.fish, \$PROFILE, or ~/.elvish/rc.elv.
-EOF
 }
 
 print_summary() {
   printf '\n========================================\n'
   log_ok "Stellar environment ready."
-  printf '  rustc:   %s\n' "$(rustc --version 2>/dev/null || echo missing)"
-  printf '  cargo:   %s\n' "$(cargo --version 2>/dev/null || echo missing)"
-  printf '  target:  %s (%s)\n' "$WASM_TARGET" "$(rustup target list --installed 2>/dev/null | grep -c "^${WASM_TARGET}\$" || true) installed"
-  printf '  stellar: %s\n' "$(stellar --version 2>/dev/null | head -n 1 || echo missing)"
+  printf '  rustc:   %s\n' "$(rustc_version || echo missing)"
+  printf '  cargo:   %s\n' "$(cargo_installed_version || echo missing)"
+  printf '  target:  %s\n' "$WASM_TARGET"
+  printf '  stellar: %s\n' "$(stellar_installed_version || echo missing)"
   printf '========================================\n'
-  printf '\nTry:  stellar --help\n'
-  printf 'Docs: https://developers.stellar.org/docs/tools/cli/stellar-cli.md\n'
-  printf 'Repo: https://github.com/%s\n' "$PROJECT_REPO"
+}
+
+print_next_steps() {
+  _shell="$(basename "${SHELL:-bash}")"
+  printf '\nNext Steps:\n'
+  printf '  1. Shell completion (detected: %s):\n' "$_shell"
+  case "$_shell" in
+    zsh)  printf '     source <(stellar completion --shell zsh)\n' ;;
+    fish) printf '     stellar completion --shell fish | source\n' ;;
+    *)    printf '     source <(stellar completion --shell bash)\n' ;;
+  esac
+  printf '  2. Editor setup (VS Code):\n'
+  printf '     Install extensions: rust-analyzer, vadimcn.vscode-lldb\n'
+  printf '  3. Getting started:\n'
+  printf '     stellar --help\n'
+  printf '     Docs: https://developers.stellar.org/docs/tools/cli/stellar-cli.md\n'
+  printf '     Repo: https://github.com/%s\n' "$PROJECT_REPO"
 }
 
 main() {
@@ -563,8 +570,8 @@ main() {
   ensure_rust
   ensure_target
   ensure_stellar_cli
-  print_editor_checklist
   print_summary
+  print_next_steps
 }
 
 main "$@"
