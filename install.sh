@@ -282,19 +282,19 @@ install_system_build_deps() {
   log_info "Ensuring system build dependencies (best effort)..."
   if command_exists apt-get; then
     run_as_root apt-get update || log_warn "apt-get update failed, continuing."
-    run_as_root apt-get install -y curl build-essential pkg-config libssl-dev \
+    run_as_root apt-get install -y curl build-essential pkg-config libssl-dev libdbus-1-dev libudev-dev \
       || log_warn "Could not install build deps via apt-get, continuing."
   elif command_exists dnf; then
-    run_as_root dnf install -y curl gcc make pkgconfig openssl-devel \
+    run_as_root dnf install -y curl gcc make pkgconfig openssl-devel dbus-devel systemd-devel \
       || log_warn "Could not install build deps via dnf, continuing."
   elif command_exists yum; then
-    run_as_root yum install -y curl gcc make pkgconfig openssl-devel \
+    run_as_root yum install -y curl gcc make pkgconfig openssl-devel dbus-devel systemd-devel \
       || log_warn "Could not install build deps via yum, continuing."
   elif command_exists pacman; then
-    run_as_root pacman -S --needed --noconfirm base-devel openssl pkg-config curl \
+    run_as_root pacman -S --needed --noconfirm base-devel openssl pkg-config curl dbus systemd \
       || log_warn "Could not install build deps via pacman, continuing."
   elif command_exists zypper; then
-    run_as_root zypper install -y curl gcc make pkg-config libopenssl-devel \
+    run_as_root zypper install -y curl gcc make pkg-config libopenssl-devel dbus-1-devel systemd-devel \
       || log_warn "Could not install build deps via zypper, continuing."
   else
     log_warn "Unknown Linux package manager; skipping system build deps."
@@ -422,11 +422,14 @@ default_install_dir() {
 install_stellar_latest_via_upstream() {
   _dir="$1"
   _args=""
+  if [ "$OS" = "linux" ]; then
+    _args="--install-deps"
+  fi
   # Pass through install location so behavior matches user flags.
   if [ "$USER_INSTALL" = true ]; then
-    _args="--user"
+    _args="$_args --user"
   elif [ -n "$INSTALL_DIR" ]; then
-    _args="--dir=$_dir"
+    _args="$_args --dir=$_dir"
   fi
   log_info "Installing Stellar CLI (latest) via official installer..."
   # shellcheck disable=SC2086
@@ -521,10 +524,17 @@ ensure_stellar_cli() {
   fi
 
   ensure_cargo_env
+  ensure_path_hint "$_dir"
+
+  # Include _dir in current script PATH to allow immediate validation
+  case ":$PATH:" in
+    *":$_dir:"*) ;;
+    *) PATH="$_dir:$PATH"; export PATH ;;
+  esac
+
   if ! command_exists stellar; then
-    # binary may be in _dir which is not on PATH yet
     if [ -x "$_dir/stellar" ]; then
-      log_warn "stellar installed to $_dir/stellar but $_dir is not on PATH."
+      log_warn "stellar installed to $_dir/stellar but failed to execute."
     else
       log_error "stellar still not found after install."
       exit 1
@@ -532,7 +542,6 @@ ensure_stellar_cli() {
   else
     log_ok "Stellar CLI OK (v$(stellar_installed_version))"
   fi
-  ensure_path_hint "$_dir"
 }
 
 print_summary() {
